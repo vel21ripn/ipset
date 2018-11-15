@@ -174,4 +174,12 @@ config IP_SET_LIST_SET
 
 	  To compile it as a module, choose M here.  If unsure, say N.
 
+config IP_SET_STRING
+	tristate "string set support"
+	depends on IP_SET
+	help
+	  This option adds the string set type support.
+
+	  To compile it as a module, choose M here.  If unsure, say N.
+
 endif # IP_SET
