@@ -10,6 +10,9 @@ obj-m += ip_set_hash_net.o ip_set_hash_netport.o ip_set_hash_netiface.o
 obj-m += ip_set_hash_netnet.o ip_set_hash_netportnet.o ip_set_hash_mac.o
 obj-m += ip_set_list_set.o
 obj-m += ip_set_ipcidr.o
+obj-m += ip_set_string.o
+
+ip_set_string-objs := ip_set_string_main.o libahocorasick.o
 
 # It's for me...
 incdirs := $(M)
