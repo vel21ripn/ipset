@@ -186,18 +186,24 @@ struct frag_array {
 };
 
 struct acho_ret {
-        int id;
         struct ip_set *set;
         const struct ip_set_ext *ext;
+        char *name;
+        int len;
+        int id;
+        int exact;
 };
-
-static int acho_match_mc_nc(AC_MATCH_t *m, AC_TEXT_t *txt, void *param) {
-        return 1;
-}
 
 static int acho_match_mc(AC_MATCH_t *m, AC_TEXT_t *txt, void *param) {
     struct acho_ret *p = (struct acho_ret *)param;
-    p->id = m->patterns->rep.number;
+    if(!p->exact || 
+            (m->patterns->length == txt->length &&
+             !memcmp(m->patterns->astring,txt->astring,txt->length))) {
+        p->id = m->patterns->rep.number;
+        p->name = m->patterns->astring;
+        p->len = m->patterns->length;
+        if(p->exact) return 1;
+    }
     if(p->set && p->ext) {
         struct ip_set_counter *counter = 
                 (struct ip_set_counter *)(m->patterns->astring - sizeof(struct ip_set_counter));
@@ -217,9 +223,11 @@ static int acho_match_string0(AC_AUTOMATA_t *automa,
     return 0;
 
   memset((char *)&ac_match,0,sizeof(ac_match));
+  match.exact = 1;
   ac_input_text.astring = string_to_match, ac_input_text.length = len;
 
-  return ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc_nc, (void *)&match);
+  ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match);
+  return match.id > 0;
 }
 
 static int acho_match_string(AC_AUTOMATA_t *automa, 
@@ -249,7 +257,7 @@ static int acho_match_string(AC_AUTOMATA_t *automa,
   } else {
         for(i = 0; i < frag_num; i++) {
             ac_input_text.astring = frag[i].ptr, ac_input_text.length = frag[i].len;
-            if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc_nc, (void *)&match))
+            if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match))
                     return 1;
         }
         return 0;
@@ -265,15 +273,6 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
     AC_PATTERN_t ac_pattern;
     int r,minlen=0;
 
-#ifdef IP_SET_DEBUG
-    {
-        char buf[128];
-        ascii_str(str->hstr,str->hlen,buf,sizeof(buf)-1);
-        DP("%s '%s' len %zu hstr '%s' hlen:%zu\n",
-            op ? "ADD":"DEL",str->str,str->len, buf,str->hlen);
-    }
-#endif
-
     r = 0;
     rcu_read_lock();
     automata = rcu_dereference(map->automata);
@@ -286,10 +285,19 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
     } else
         rcu_read_unlock();
 
+#ifdef IP_SET_DEBUG
+    {
+        char buf[128];
+        ascii_str(str->hstr,str->hlen,buf,sizeof(buf)-1);
+        DP("%s '%s' len %zu hstr '%s' hlen:%zu match %d\n",
+            op ? "ADD":"DEL",str->str,str->len, buf,str->hlen,r);
+    }
+#endif
+
     if(op) {
         if(r) return -IPSET_ERR_EXIST;
     } else {
-        if(!r) return 1;
+        if(!r) return -IPSET_ERR_EXIST;
     }
 
     memset(&ac_pattern, 0, sizeof(ac_pattern));
