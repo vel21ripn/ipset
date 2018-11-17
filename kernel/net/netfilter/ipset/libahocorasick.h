@@ -39,7 +39,7 @@
  * AC_ALPHABET_t and leave it optional for other developers to define their
  * own alphabets.
  **/
-typedef char AC_ALPHABET_t;
+typedef unsigned char AC_ALPHABET_t;
 
 /* AC_REP_t:
  * Provides a more readable representative for a pattern.
@@ -161,10 +161,10 @@ struct edge;
 typedef struct ac_node
 {
   int id;                              /* Node ID : set after finalize(), only for ac_automata_dump */
-  unsigned char  final:1,	       /* 0: no ; 1: yes, it is a final node */
+  AC_ALPHABET_t  one_alpha,
+	  	 final:1,	       /* 0: no ; 1: yes, it is a final node */
 		 one:1,use:1,	       /* use: yes/no, one_char: yes/no */
-		 ff:1,		       /* finalized node */
-		 one_alpha;	       /* if one, outgoing use as next pointer */
+		 ff:1;		       /* finalized node */
   unsigned short depth;                /* depth: distance between this node and the root */
 
   AC_PATTERNS_t  * matched_patterns;   /* Array of matched patterns */

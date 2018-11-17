@@ -252,6 +252,14 @@ static int acho_match_string(AC_AUTOMATA_t *automa,
             if(!frag[i].ptr || !frag[i].len) continue;
             if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match))
                     return 1; /* ??? */
+#ifdef IP_SET_DEBUG
+	    if(frag[i].len < 256) {
+        	char buf[256*2+2];
+        	ascii_str(frag[i].ptr,frag[i].len,buf,sizeof(buf)-1);
+        	DP("MATCH len %zu hstr '%s' ID %d\n",
+            	frag[i].len,buf,match.id);
+	    }
+#endif
         }
         return match.id;
   } else {
