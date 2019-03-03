@@ -24,10 +24,6 @@
 #include <linux/netfilter/ipset/ip_set.h>
 #include <linux/netfilter/ipset/ip_set_ipcidr.h>
 #include <linux/netfilter/ipset/ip_set_timeout.h>
-/* Garbage collection interval in seconds: */
-#define IPTREE_GC_TIME		2*60
-/* Sleep so many milliseconds before trying again 
- * to delete the gc timer at destroying a set */ 
 
 //#define IP_SET_DEBUG
 #ifdef IP_SET_DEBUG
@@ -292,6 +288,14 @@ free_node(n,map);
 return 1;
 }
 
+static void u_compress(struct ip_set *set)
+{
+	struct ip_set_ipcidr * map = set->data;
+	if(map->tree) {
+		if(map->tree->l0 &&  _compress(map->tree->l0,0,map)) map->tree->l0=NULL;
+		if(map->tree->l1 &&  _compress(map->tree->l1,0,map)) map->tree->l1=NULL;
+	}
+}
 
 /*********************************************************************************/
 
@@ -538,14 +542,19 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 
 
 	if(!set) return -IPSET_ERR_PROTOCOL;
+	spin_lock_bh(&set->lock);
 	map = set->data;
-	if(!map) return -EINVAL;
+	if(!map) {
+		spin_unlock_bh(&set->lock);
+		return -EINVAL;
+	}
 	
 	ip = htonl(ip4addr(skb, opt->flags & IPSET_DIM_ONE_SRC));
 	switch(adt) {
 	  case IPSET_TEST:
 		        mark[0] = mark[1] = 0;
 			res =  __testip(set,ip, &mark[0]);
+			spin_unlock_bh(&set->lock);
 			if(res >= 0) {
 				opt->ext.skbinfo.skbprio = mark[0];
 				opt->ext.skbinfo.skbmark = mark[0];
@@ -568,11 +577,14 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 				rq.expired *= HZ;
 				rq.expired += jiffies;
 			}
-			return __addip(set,&rq,adt == IPSET_ADD);
+			res = __addip(set,&rq,adt == IPSET_ADD);
+			spin_unlock_bh(&set->lock);
+			return res;
 			}
 		  break;
 	  default: break;
 	}
+	spin_unlock_bh(&set->lock);
 	return -IPSET_ERR_PROTOCOL;
 }
 
@@ -647,8 +659,11 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 			rq.mark = mark;
 			rq.mask = mask;
 
-			if(ip_to == 0 || ip_to == ip)
-				return __addip(set, &rq , adt == IPSET_ADD);
+			if(ip_to == 0 || ip_to == ip) {
+				ret = __addip(set, &rq , adt == IPSET_ADD);
+				u_compress(set);
+				return ret;
+			}
 
 			rl = r2l(ip,ip_to,l,sizeof(l)/sizeof(l[0]));
 			while(rl) {
@@ -658,6 +673,7 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 				ret = __addip(set, &rq, adt == IPSET_ADD);
 				if(ret) break;
 			}
+			u_compress(set);
 			return ret;
 			}
 	  default: break;
@@ -676,15 +692,10 @@ static void ipcidr_destroy(struct ip_set *set)
 {
 	struct ip_set_ipcidr *map = (struct ip_set_ipcidr *) set->data;
 
-	spin_lock_bh(&set->lock);
-
-	del_timer_sync(&map->gc);
 	DP("destroy %s\n",set->name);
 	__flush(map);
 	kfree(map);
 	set->data = NULL;
-
-	spin_unlock_bh(&set->lock);
 }
 
 static void ipcidr_flush(struct ip_set *set)
@@ -931,22 +942,6 @@ static const struct ip_set_type_variant ipcidr_op = {
 	.same_set = ipcidr_same_set,
 };
 
-static void
-ipcidr_set_gc(GC_ARG)
-{
-	INIT_GC_VARS(ip_set_ipcidr, map);
-
-        spin_lock_bh(&set->lock);
-	if(map->tree) {
-		if(map->tree->l0 &&  _compress(map->tree->l0,0,map)) map->tree->l0=NULL;
-		if(map->tree->l1 &&  _compress(map->tree->l1,0,map)) map->tree->l1=NULL;
-	}
-        spin_unlock_bh(&set->lock);
-
-        map->gc.expires = jiffies + IPSET_GC_PERIOD(set->timeout) * HZ;
-        add_timer(&map->gc);
-}
-
 static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 flags)
 {
 	struct ip_set_ipcidr *map;
@@ -983,15 +978,6 @@ static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 
 	set->variant = &ipcidr_op;
 	map->set = set;
 
-	TIMER_SETUP(&map->gc, ipcidr_set_gc);
-	mod_timer(&map->gc, jiffies + IPSET_GC_PERIOD(IPTREE_GC_TIME) * HZ);
-
-/*	init_timer(&map->gc);
-	map->gc.data = (unsigned long) set;
-	map->gc.function = ip_tree_gc;
-	map->gc.expires = jiffies + map->gc_interval * HZ;
-	add_timer(&map->gc); */
-	
 	return 0;
 }
 
