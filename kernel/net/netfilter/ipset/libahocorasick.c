@@ -575,9 +575,10 @@ static void ac_automata_set_failure
   AC_NODE_t * m;
 
   for (i=1; i < node->depth; i++) {
-	  m = thiz->root;
-	  for (j=i; j < node->depth && m; j++)
-		m = node_find_next (m, path[j].l);
+		m = thiz->root;
+		for (j=i; j < node->depth && m; j++) {
+			m = node_find_next (m, path[j].l);
+		}
 		if (m) {
 		  node->failure_node = m;
 		  break;
