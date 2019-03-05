@@ -623,7 +623,8 @@ static void ac_automata_traverse_setfailure
 	}
 
 	if(node->depth < AC_PATTRN_MAX_LENGTH) {
-			path[node->depth].l = edge_get_alpha(node->outgoing)[i];
+			path[node->depth].l = node->one ? node->one_alpha:
+									edge_get_alpha(node->outgoing)[i];
 			/* At every node look for its failure node */
 			ac_automata_set_failure (thiz, next, path);
 	}
