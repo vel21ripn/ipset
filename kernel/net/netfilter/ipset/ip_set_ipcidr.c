@@ -542,17 +542,15 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 
 
 	if(!set) return -IPSET_ERR_PROTOCOL;
-	spin_lock_bh(&set->lock);
-	map = set->data;
-	if(!map) {
-		spin_unlock_bh(&set->lock);
+	map = READ_ONCE(set->data);
+	if(!map) 
 		return -EINVAL;
-	}
 	
 	ip = htonl(ip4addr(skb, opt->flags & IPSET_DIM_ONE_SRC));
 	switch(adt) {
 	  case IPSET_TEST:
 		        mark[0] = mark[1] = 0;
+			spin_lock_bh(&set->lock);
 			res =  __testip(set,ip, &mark[0]);
 			spin_unlock_bh(&set->lock);
 			if(res >= 0) {
@@ -570,7 +568,7 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 			memset((char *)&rq,0,sizeof(rq));
 			rq.mlen = map->masklen;
 			rq.ip = ip & l2m[map->masklen];
-			rq.f_tmo = map->timeout != 0 || opt->ext.timeout;
+			rq.f_tmo = map->timeout != 0;
 			if (rq.f_tmo) {
 				rq.expired = opt->ext.timeout;
 				if(!rq.expired) rq.expired = map->timeout;
@@ -578,13 +576,11 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 				rq.expired += jiffies;
 			}
 			res = __addip(set,&rq,adt == IPSET_ADD);
-			spin_unlock_bh(&set->lock);
 			return res;
 			}
 		  break;
 	  default: break;
 	}
-	spin_unlock_bh(&set->lock);
 	return -IPSET_ERR_PROTOCOL;
 }
 
