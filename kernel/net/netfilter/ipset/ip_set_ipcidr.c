@@ -897,13 +897,11 @@ static int ipcidr_list(const struct ip_set *set,
 	offset[1] = cb->args[IPSET_CB_ARG0];
 
 	memset((char *)&p,0,sizeof(p));
-	rcu_read_lock();
 	res = _list_members(map->tree,skb,offset,&p);
 	if(!res && p.f_act && offset[0] >= offset[1]) {
 		res = ipcidr_put_node(&p,skb);
 		if(!res) offset[0]++;
 	}
-	rcu_read_unlock();
 
 	if(res && offset[0] <= offset[1]) {
 		DP("%s %s EMSGSIZE offs %d\n",
