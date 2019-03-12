@@ -211,7 +211,7 @@ typedef struct
   /* The root of the Aho-Corasick trie */
   AC_NODE_t * root;
 #ifdef __KERNEL__
-  rwlock_t	lock;
+  struct rcu_head rcu;
 #endif
   unsigned int all_nodes_num; /* Number of all nodes in the automata */
 

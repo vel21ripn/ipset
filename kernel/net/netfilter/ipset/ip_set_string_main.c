@@ -30,7 +30,6 @@
 #include <net/ipv6.h>
 #include <net/tcp.h>
 
-
 #include <net/netlink.h>
 #include <linux/netfilter/ipset/ip_set.h>
 #include <linux/netfilter/ipset/ip_set_string.h>
@@ -63,12 +62,13 @@ struct one_string {
 typedef struct one_string one_string_t;
 
 struct ip_set_string {
-    int         count;
-    int         minlen;
-    one_string_t *first;
-    spinlock_t  a_lock;
+    int           count;
+    int           minlen;
+    spinlock_t    first_lock;
+    spinlock_t    ac_lock;
+    one_string_t  *first;
     AC_AUTOMATA_t __rcu *automata;
-    uint32_t    flags;
+    uint32_t      flags;
 };
 
 #ifdef IP_SET_DEBUG
@@ -152,6 +152,10 @@ static int parse_hex_string(const char *str,size_t len,char *dest) {
     return hlen;
 }
 
+static void free_one_string(one_string_t *str) {
+	kfree(str);
+}
+
 static one_string_t *alloc_one_string(const char *str,size_t len,int cext) {
     one_string_t *r;
     size_t hlen;
@@ -162,7 +166,7 @@ static one_string_t *alloc_one_string(const char *str,size_t len,int cext) {
     hlen = parse_hex_string(str,len,NULL);
 
     r = (one_string_t *)kmalloc(sizeof(one_string_t)+len+1+hlen+1 +
-                    sizeof(struct ip_set_counter)*cext ,GFP_KERNEL);
+                    sizeof(struct ip_set_counter)*cext, GFP_ATOMIC);
     if(!r) return r;
     r->next = NULL;
     r->len = len;
@@ -230,7 +234,7 @@ static int acho_match_string0(AC_AUTOMATA_t *automa,
   return match.id > 0;
 }
 
-static int acho_match_string(AC_AUTOMATA_t *automa, 
+noinline static int acho_match_string(AC_AUTOMATA_t *automa, 
                 struct frag_array *frag, size_t frag_num,
                 struct ip_set *set, const struct ip_set_ext *ext) {
   AC_TEXT_t ac_input_text;
@@ -262,36 +266,42 @@ static int acho_match_string(AC_AUTOMATA_t *automa,
 #endif
         }
         return match.id;
-  } else {
-        for(i = 0; i < frag_num; i++) {
-            ac_input_text.astring = frag[i].ptr, ac_input_text.length = frag[i].len;
-            if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match))
-                    return 1;
-        }
-        return 0;
   }
+  for(i = 0; i < frag_num; i++) {
+      ac_input_text.astring = frag[i].ptr, ac_input_text.length = frag[i].len;
+      if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match))
+              return 1;
+  }
+  return 0;
 
 }
 
 /*********************************************************************************/
 
+static void automata_release(struct rcu_head *head) {
+		AC_AUTOMATA_t *tmp = container_of(head, AC_AUTOMATA_t, rcu);
+        ac_automata_release(tmp);
+}
+
+static void acho_replace(struct ip_set_string *map, AC_AUTOMATA_t *automata) {
+	AC_AUTOMATA_t *tmp;
+
+    spin_lock_bh(&map->ac_lock);
+    tmp = rcu_dereference_protected(map->automata,lockdep_is_held(&map->ac_lock));
+    rcu_assign_pointer(map->automata, automata);
+    spin_unlock_bh(&map->ac_lock);
+    if(tmp)
+        call_rcu(&tmp->rcu, automata_release);
+}
+
 static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
-    AC_AUTOMATA_t *automata,*tmp;
-    one_string_t *n,**p,**dp;
+    AC_AUTOMATA_t *automata;
+    one_string_t *n,*t,*p;
     AC_PATTERN_t ac_pattern;
-    int r,minlen=0;
+    int r,minlen=0,d_ok = 0;
 
-    r = 0;
-    rcu_read_lock();
-    automata = rcu_dereference(map->automata);
-    if(automata) {
-        read_lock_bh(&automata->lock);
-        rcu_read_unlock();
-
-        r = acho_match_string0(automata,str->hstr,str->hlen);
-        read_unlock_bh(&automata->lock);
-    } else
-        rcu_read_unlock();
+	automata = smp_load_acquire(&map->automata);
+    r = automata ? acho_match_string0(automata,str->hstr,str->hlen) : 0;
 
 #ifdef IP_SET_DEBUG
     {
@@ -312,13 +322,23 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
 
     automata = ac_automata_init();
     if(!automata) return -ENOMEM;
-    rwlock_init(&automata->lock);
 
-    p = &map->first;
-    dp = NULL;
-    for(n = map->first; n; p = &n->next, n = n->next) {
+	spin_lock(&map->first_lock);
+
+	for(p = NULL,n = map->first; n; n = t) {
+		t = n->next;
         if(!op && str->len == n->len && !memcmp(str->str,n->str,n->len)) {
-            dp = p;
+			if(p) {
+				p->next = t;
+//				if(cmpxchg(&p->next,n,t) != n) BUG_ON(1);
+			} else {
+				map->first = t;
+//				if(cmpxchg(&map->first,n,t) != n) BUG_ON(1);
+			}
+            free_one_string(n);
+            map->count--;
+			d_ok++;
+			BUG_ON(d_ok > 1);
             continue;
         }
         ac_pattern.astring = n->hstr;
@@ -329,6 +349,7 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
             return -1;
         }
         if(minlen < n->hlen) minlen = n->hlen;
+    	p = n;
     }
     if(op) {
         ac_pattern.astring = str->hstr;
@@ -339,32 +360,20 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
             return -1;
         }
         if(minlen < str->hlen) minlen = str->hlen;
-        str->next = map->first;
-        map->first = str;
+
+	    str->next = map->first;
+		map->first = str;
+
         map->count++;
-    } else {
-        if(dp) {
-            n = *dp;
-            *dp = n->next;
-            kfree(n);
-            map->count--;
-            kfree(str);
-        } else 
-            return -1;
     }
+	spin_unlock(&map->first_lock);
+
+	if(!op)
+		free_one_string(str);
 
     ac_automata_finalize(automata);
-
-    spin_lock_bh(&map->a_lock);
-    tmp = rcu_dereference_protected(map->automata,lockdep_is_held(&map->a_lock));
+	acho_replace(map,automata);
     map->minlen = minlen;
-    rcu_assign_pointer(map->automata, automata);
-    spin_unlock_bh(&map->a_lock);
-    if(tmp) {
-        write_lock_bh(&tmp->lock);
-        write_unlock_bh(&tmp->lock);
-        ac_automata_release(tmp);
-    }
 
     return 0;
 }
@@ -372,35 +381,29 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
 /********************************************************************/
 
 static int
-__teststr(struct ip_set *set, const struct ip_set_ext *ext,
-                struct frag_array *frag, size_t frag_num, int unlocked)
+__teststr(struct ip_set *set, struct ip_set_string *map,
+		const struct ip_set_ext *ext, 
+		struct frag_array *frag, size_t frag_num, int unlocked)
 {
-struct ip_set_string *map;
 AC_AUTOMATA_t * automata;
 int r;
 
     if(!set) return 0;
-    map = (struct ip_set_string *)set->data;
+    if(!map) return 0;
 
-    if(!map->first) return 0;
-    r = 0;
-    rcu_read_lock();
-    automata = rcu_dereference(map->automata);
-    if(automata) {
-        read_lock_bh(&automata->lock);
-        rcu_read_unlock();
-        r = acho_match_string(automata,frag,frag_num,set,ext);
-        read_unlock_bh(&automata->lock);
-    } else 
-        rcu_read_unlock();
-
+    if(!READ_ONCE(map->first)) return 0;
+	rcu_read_lock();
+	automata = rcu_dereference(map->automata);
+	r = automata ? acho_match_string(automata,frag,frag_num,set,ext) : 0;
+	rcu_read_unlock();
+	
     return r > 0 ? 1:0;
 }
 
 
 /********************************************************************/
 
-static int get_payload_offset(const void *data,size_t data_len) {
+static int get_payload_offset(const void *data,unsigned int data_len) {
 
     const struct iphdr *ip = (struct iphdr *)data;
 
@@ -409,25 +412,29 @@ static int get_payload_offset(const void *data,size_t data_len) {
         if(data_len < sizeof(struct iphdr)) return 0;
 
         pkt_len = htons(ip->tot_len);
-
+		if(pkt_len > data_len)
+			return 0;
         s_offset = ip->ihl * 4;
+		switch(ip->protocol) {
+		case IPPROTO_TCP:
+			{
+			  const struct tcphdr *th = (struct tcphdr *)(data + s_offset);
+              if(s_offset + sizeof(struct tcphdr) > data_len) return 0;
 
-        // UDP & ICMP header size <= 8
-        if(s_offset + 8 > data_len) return 0;
-
-        if(ip->protocol == IPPROTO_TCP) {
-            if(s_offset + sizeof(struct tcphdr) > data_len) return 0;
-            s_offset += ((struct tcphdr *)(data+s_offset))->doff * 4;
-        } else
-            if(ip->protocol == IPPROTO_UDP) {
-                if(s_offset + sizeof(struct udphdr) > data_len) return 0;
-                s_offset += sizeof(struct udphdr);
-            } else
-                if(ip->protocol == IPPROTO_ICMP) {
-                    if(s_offset + sizeof(struct icmphdr) > data_len) return 0;
-                    s_offset += sizeof(struct icmphdr);
-                }
-        return s_offset;
+              s_offset += th->doff * 4;
+			  if(0 && s_offset > data_len) {
+				  printk("%s: tcp bug! offs %u data_len %u pkt_len %u ihl %u, doff %u\n",
+						__func__, s_offset, data_len, pkt_len, ip->ihl, th->doff);
+			  }
+			}
+			break;
+		case IPPROTO_UDP:
+            s_offset += sizeof(struct udphdr);
+			break;
+		case IPPROTO_ICMP:
+            s_offset += sizeof(struct icmphdr);
+		}
+        return s_offset > data_len ? 0:s_offset;
     }
     return 0; // FIXME ipv6
 }
@@ -456,11 +463,12 @@ string_kadt(struct ip_set *set, const struct sk_buff *skb,
         struct frag_array frag;
         pkt_len = skb->len;
         s_offset = get_payload_offset(ip,pkt_len);
+		if(s_offset > pkt_len)
+				return 0;
         frag.ptr = (char *)ip + s_offset;
         frag.len = pkt_len - s_offset;
-        if(!frag.len) return 0;
         DP("__teststr %s linear len %zu\n",set->name,frag.len);
-        res =  __teststr(set, &ext, &frag, 1 ,1);
+        res =  __teststr(set, map, &ext, &frag, 1 ,1);
     } else {
         struct frag_array frags[MAX_SKB_FRAGS+1];
         skb_frag_t *frag;
@@ -468,12 +476,14 @@ string_kadt(struct ip_set *set, const struct sk_buff *skb,
 
         pkt_len = skb_headlen(skb);
         s_offset = get_payload_offset(ip,pkt_len);
+		if(s_offset > pkt_len)
+				return 0;
         o = 0;
-        if(pkt_len - s_offset > 0) {
+        if(s_offset < pkt_len) {
             frags[o].ptr = (char *)ip + s_offset;
             frags[o].len = pkt_len - s_offset;
-            DP("__teststr %s nonlinear skb header %zu\n",set->name,frags[o].len);
             o++;
+            DP("__teststr %s nonlinear skb header %zu\n",set->name,frags[o].len);
         } else {
             DP("__teststr %s nonlinear skb header empty\n",set->name);
         }
@@ -486,7 +496,7 @@ string_kadt(struct ip_set *set, const struct sk_buff *skb,
             o++;
         }
         DP("__teststr %s nonlinear frags %d\n",set->name,o);
-        res =  __teststr(set, &ext, frags, o ,1);
+        res =  __teststr(set, map, &ext, frags, o ,1);
     }
 
     return res >= 0 ? res : 0;
@@ -505,6 +515,8 @@ string_uadt(struct ip_set *set, struct nlattr *tb[],
     int r;
 
     if (!set) return -IPSET_ERR_PROTOCOL;
+    map = (struct ip_set_string *)set->data;
+    if (!map) return -IPSET_ERR_PROTOCOL;
     if (unlikely(!tb[IPSET_ATTR_COMMENT])) return -IPSET_ERR_PROTOCOL;
 
     if (tb[IPSET_ATTR_LINENO])
@@ -534,15 +546,15 @@ string_uadt(struct ip_set *set, struct nlattr *tb[],
                 struct frag_array frag;
                 frag.ptr = s->hstr;
                 frag.len = s->hlen;
-                r = __teststr(set, NULL, &frag, 1, 0);
-                kfree(s);
+                r = __teststr(set,map, NULL, &frag, 1, 0);
+				free_one_string(s);
                 return r;
               }
       case IPSET_ADD:
       case IPSET_DEL:
-                map = (struct ip_set_string *)set->data;
                 r = acho_build(map,adt == IPSET_ADD,s);
-                if(r) kfree(s);
+                if(r)
+					free_one_string(s);
                 return r;
       default: break;
     }   
@@ -551,25 +563,18 @@ string_uadt(struct ip_set *set, struct nlattr *tb[],
 
 
 static void __flush(struct ip_set_string *map) {
-    AC_AUTOMATA_t *automata;
     struct one_string *s,*n;
 
-    spin_lock_bh(&map->a_lock);
-    automata = rcu_dereference_protected(map->automata,lockdep_is_held(&map->a_lock));
-    rcu_assign_pointer(map->automata, NULL);
+	acho_replace(map,NULL);
     map->minlen = 65536;
-    spin_unlock_bh(&map->a_lock);
-    if(automata) {
-        write_lock_bh(&automata->lock);
-        write_unlock_bh(&automata->lock);
-        ac_automata_release(automata);
-    }
 
-    s = map->first;
-    map->first = NULL;
-    for(s = map->first,n = NULL; s ; s = n) {
+	spin_lock(&map->first_lock);
+	s = xchg(&map->first,NULL);
+	spin_unlock(&map->first_lock);
+
+    for(n = NULL; s ; s = n) {
         n = s->next;
-        kfree(s);
+		free_one_string(s);
     }
     map->count = 0;
 }
@@ -578,14 +583,10 @@ static void string_destroy(struct ip_set *set)
 {
     struct ip_set_string *map = (struct ip_set_string *) set->data;
 
-    spin_lock_bh(&set->lock);
-
     DP("destroy %s\n",set->name);
     __flush(map);
     kfree(map);
     set->data = NULL;
-
-    spin_unlock_bh(&set->lock);
 }
 
 static void string_flush(struct ip_set *set)
@@ -642,14 +643,14 @@ static int _list_members(const struct ip_set *set, one_string_t *n,
         struct sk_buff *skb,
         size_t *offset)
 {
-    if(!n) return 0;
-    while(n) {
+	one_string_t *t;
+    for(; n ; n = t) {
+		t = READ_ONCE(n->next);
         if(offset[0] >= offset[1]) { 
             int ret = string_put_node(set, n, skb); 
             if(ret) return ret; // No mem in skb  
         } 
         offset[0]++;
-        n = n->next;
     }
     return 0;
 }
@@ -669,9 +670,9 @@ static int string_list(const struct ip_set *set,
     offset[0] = 0;
     offset[1] = cb->args[IPSET_CB_ARG0];
 
-    rcu_read_lock();
+	spin_lock(&map->first_lock);
     res = _list_members(set, map->first,skb,offset);
-    rcu_read_unlock();
+	spin_unlock(&map->first_lock);
 
     if(res && offset[0] <= offset[1]) {
         DP("%s %s EMSGSIZE offs %d\n", __func__,set->name,(int)offset[0]);
@@ -722,7 +723,8 @@ static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 
     map->count = 0;
     map->minlen = 0;
 
-    spin_lock_init(&map->a_lock);
+    spin_lock_init(&map->first_lock);
+    spin_lock_init(&map->ac_lock);
 
     set->data = map;
     set->variant = &string_op;

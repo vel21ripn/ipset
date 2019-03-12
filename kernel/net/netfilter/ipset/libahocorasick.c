@@ -66,20 +66,16 @@ static void ac_automata_traverse_setfailure
 		(AC_AUTOMATA_t * thiz);
 
 #ifdef __KERNEL__
-static inline void *acho_realloc(void *ptr,size_t oldsize,size_t newsize) {
-	return krealloc(ptr,newsize,GFP_KERNEL);
-}
 static inline void *acho_calloc(size_t nmemb, size_t size) {
-	return kcalloc(nmemb, size, GFP_KERNEL);
+	return kcalloc(nmemb, size, GFP_ATOMIC);
 }
 static inline void *acho_malloc(size_t size) {
-	return kmalloc(size, GFP_KERNEL);
+	return kmalloc(size, GFP_ATOMIC);
 }
 static inline void acho_free(void *old) {
 	return kfree(old);
 }
 #else
-void *acho_realloc(void *ptr,size_t oldsize,size_t newsize);
 void *acho_calloc(size_t nmemb, size_t size);
 void *acho_malloc(size_t size);
 void acho_free(void *old);
@@ -277,6 +273,7 @@ int ac_automata_search (AC_AUTOMATA_t * thiz, AC_MATCH_t * match,
   unsigned long position,p_len;
   AC_NODE_t *curr;
   AC_NODE_t *next;
+  unsigned char *apos;
 
   if(thiz->automata_open)
     /* you must call ac_automata_locate_failure() first */
@@ -286,12 +283,13 @@ int ac_automata_search (AC_AUTOMATA_t * thiz, AC_MATCH_t * match,
   position = 0;
   curr = match->start_node;
   if(!curr) curr = thiz->root;
-
+  apos = txt->astring;
+  
   /* This is the main search loop.
    * it must be keep as lightweight as possible. */
   while (position < txt->length)
     {
-      if(!(next = node_findbs_next(curr, txt->astring[position])))
+      if(!(next = node_findbs_next(curr, *apos++)))
 		{
 		  if(curr->failure_node) /* we are not in the root node */
 		    curr = curr->failure_node;
@@ -348,42 +346,43 @@ static void _ac_automata_release (AC_AUTOMATA_t * thiz, int clean)
 
   ip = 1;
   path[1].n = thiz->root;
-  path[1].idx = 0;
 
   while(ip) {
 	n = path[ip].n;
-	i = path[ip].idx;
 
-	if(!n->use || (n->one && i > 0) || !n->outgoing) {
+	if(!n->outgoing) {
+		if(n != thiz->root)
+				node_release(n);
 		ip--; continue;
 	}
-	if(n->one && !i) {
+	if(n->one) {
 		next = (AC_NODE_t *)n->outgoing;
+		n->outgoing = NULL;
 	} else {
-		if(i >= n->outgoing->degree) {
-			ip--;
+		if(n->outgoing->degree != 0) {
+			i = --n->outgoing->degree;
+			next = n->outgoing->next[i];
+			n->outgoing->next[i] = NULL;
+		} else {
 			if(n != thiz->root)
 					node_release(n);
-			continue;
+			ip--; continue;
 		}
-		next = n->outgoing->next[i];
 	}
 
-	if(!next) {
+	if(!next) { // BUG!
 		ip--; continue;
 	}
 
-	path[ip].idx = i+1;
 	if(ip >= AC_PATTRN_MAX_LENGTH)
 		continue;
 	ip++;
 	path[ip].n = next;
-	path[ip].idx = 0;
   }
 
   if(!clean) {
 	node_release(thiz->root);
-	memset (thiz, 0, sizeof(AC_AUTOMATA_t));
+	thiz->root = NULL;
   	acho_free(thiz);
   } else {
 	thiz->all_nodes_num  = 0;
@@ -661,9 +660,8 @@ static void node_release(AC_NODE_t * thiz)
   }
   if(!thiz->one && thiz->outgoing) {
 	acho_free(thiz->outgoing);
-	thiz->outgoing = NULL;
   }
-//  memset(thiz, 0, sizeof(AC_NODE_t));
+  thiz->outgoing = NULL;
   acho_free(thiz);
 }
 
@@ -701,7 +699,7 @@ static AC_NODE_t * node_findbs_next (AC_NODE_t * thiz, AC_ALPHABET_t alpha)
   int min, max, mid;
   AC_ALPHABET_t amid;
   AC_ALPHABET_t  *alphas;
-
+ 
   if(!thiz->outgoing) return NULL;
 
   if(thiz->one) return alpha == thiz->one_alpha ? (AC_NODE_t *)thiz->outgoing:NULL;
