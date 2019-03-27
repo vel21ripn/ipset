@@ -785,7 +785,7 @@ static int ipcidr_put_node(tree_node_t *n,
 				goto nla_put_failure;
 
 	if(n->f_mark) {
-		u64 fullmark = ( (u64)n->mark << 32 ) | (u64)n->mask;
+		u64 fullmark = cpu_to_be64(( (u64)n->mark << 32 ) | (u64)n->mask);
 		if(IPSET_NLA_PUT_NET64(skb, IPSET_ATTR_SKBMARK, fullmark,IPSET_ATTR_PAD))
 				goto nla_put_failure;
 	}
