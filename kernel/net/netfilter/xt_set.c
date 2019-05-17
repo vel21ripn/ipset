@@ -513,8 +513,9 @@ set_target_v3_checkentry(const struct xt_tgchk_param *par)
 		     (par->hook_mask & ~(1 << NF_INET_FORWARD |
 					 1 << NF_INET_LOCAL_OUT |
 					 1 << NF_INET_POST_ROUTING))) {
-			pr_warn("mapping of prio or/and queue is allowed only from OUTPUT/FORWARD/POSTROUTING chains\n");
-			return CHECK_FAIL(-EINVAL);
+			pr_warn("mapping of prio or/and queue is allowed only from OUTPUT/FORWARD/POSTROUTING chains (%x)\n",
+					par->hook_mask);
+//			return CHECK_FAIL(-EINVAL);
 		}
 		index = ip_set_nfnl_get_byindex(XT_PAR_NET(par),
 						info->map_set.index);
