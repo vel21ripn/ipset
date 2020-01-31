@@ -10,6 +10,14 @@
 #include <linux/types.h>
 #include <linux/netfilter/ipset/ip_set.h>
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+MODULE_IMPORT_NS(NET_IPSET);
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,1,0)
+#define synchronize_rcu_bh synchronize_rcu
+#endif
+
 #define __ipset_dereference_protected(p, c)	rcu_dereference_protected(p, c)
 #define ipset_dereference_protected(p, set) \
 	__ipset_dereference_protected(p, lockdep_is_held(&(set)->lock))

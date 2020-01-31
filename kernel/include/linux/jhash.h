@@ -114,6 +114,10 @@ static inline u32 jhash(const void *key, u32 length, u32 initval)
  *
  * Returns the hash value of the key.
  */
+#if defined(__GNUC__) && (__GNUC__ > 8)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="
+#endif
 static inline u32 jhash2(const u32 *k, u32 length, u32 initval)
 {
 	u32 a, b, c;
@@ -143,7 +147,9 @@ static inline u32 jhash2(const u32 *k, u32 length, u32 initval)
 
 	return c;
 }
-
+#if defined(__GNUC__) && (__GNUC__ > 8)
+#pragma GCC diagnostic pop
+#endif
 /* jhash_3words - hash exactly 3, 2 or 1 word(s) */
 static inline u32 jhash_3words(u32 a, u32 b, u32 c, u32 initval)
 {

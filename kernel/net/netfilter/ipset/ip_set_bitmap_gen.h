@@ -4,6 +4,9 @@
 
 #ifndef __IP_SET_BITMAP_IP_GEN_H
 #define __IP_SET_BITMAP_IP_GEN_H
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+MODULE_IMPORT_NS(NET_IPSET);
+#endif
 
 #define mtype_do_test		IPSET_TOKEN(MTYPE, _do_test)
 #define mtype_gc_test		IPSET_TOKEN(MTYPE, _gc_test)
