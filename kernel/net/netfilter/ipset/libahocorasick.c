@@ -289,7 +289,7 @@ int ac_automata_search (AC_AUTOMATA_t * thiz, AC_MATCH_t * match,
    * it must be keep as lightweight as possible. */
   while (position < txt->length)
     {
-      if(!(next = node_findbs_next(curr, *apos++)))
+      if(!(next = node_findbs_next(curr, apos[position])))
 		{
 		  if(curr->failure_node) /* we are not in the root node */
 		    curr = curr->failure_node;
