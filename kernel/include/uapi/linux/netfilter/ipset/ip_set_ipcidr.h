@@ -24,13 +24,13 @@ struct ip_set_ipcidr {
 	uint32_t	mark,mask;
 	unsigned int	gc_interval;
 #ifdef __KERNEL__
-	spinlock_t	str_lock;
-	struct ip_set	*set;
-	struct timer_list gc;
-	tree_node_t	*tree;
-	int		node_count;
-	struct list_head str;
 	uint32_t	flags;
+	struct ip_set	*set;
+	tree_node_t	*tree;
+	struct timer_list gc;
+	struct list_head str;
+	spinlock_t	str_lock;
+	int		node_count;
 #endif
 };
 
