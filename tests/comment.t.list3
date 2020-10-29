@@ -1,31 +1,35 @@
 Name: a
 Type: hash:ip
-Header: family inet hashsize 1024 maxelem 65536
-Size in memory: 152
+Revision: 5
+Header: family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0xe2558329
+Size in memory: 336
 References: 1
 Number of entries: 0
 Members:
 
 Name: b
 Type: hash:ip
-Header: family inet hashsize 1024 maxelem 65536
-Size in memory: 152
+Revision: 5
+Header: family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x0dfa7d5d
+Size in memory: 336
 References: 1
 Number of entries: 0
 Members:
 
 Name: c
 Type: hash:ip
-Header: family inet hashsize 1024 maxelem 65536
-Size in memory: 152
+Revision: 5
+Header: family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x8fada201
+Size in memory: 336
 References: 1
 Number of entries: 0
 Members:
 
 Name: test
 Type: list:set
+Revision: 3
 Header: size 8 comment
-Size in memory: 288
+Size in memory: 378
 References: 0
 Number of entries: 3
 Members:

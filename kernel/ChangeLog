@@ -1,3 +1,35 @@
+7.7
+  - Expose the initval hash parameter to userspace
+  - Add bucketsize parameter to all hash types
+  - Use fallthrough pseudo-keyword in the package copy of <linux/jhash.h> too
+  - Support the -exist flag with the destroy command
+  - netfilter: Use fallthrough pseudo-keyword (Gustavo A. R. Silva)
+  - netfilter: Replace zero-length array with flexible-array member
+    (Gustavo A. R. Silva)
+  - netfilter: ipset: call ip_set_free() instead of kfree() (Eric Dumazet)
+  - netfiler: ipset: fix unaligned atomic access (Russell King)
+  - netfilter: ipset: Fix subcounter update skip (Phil Sutter)
+  - ipset: Update byte and packet counters regardless of whether they match
+    (Stefano Brivio)
+  - netfilter: ipset: Pass lockdep expression to RCU lists (Amol Grover)
+  - ip_set: Fix compatibility with kernels between v3.3 and v4.5
+    (Serhey Popovych)
+  - ip_set: Fix build on kernels without INIT_DEFERRABLE_WORK
+    (Serhey Popovych)
+  - ipset: Support kernels with at least system_wq support
+  - ip_set: Fix build on kernels without system_power_efficient_wq
+    (Serhey Popovych)
+
+7.6
+  - netfilter: ipset: Fix forceadd evaluation path
+  - netfilter: ipset: Correct the reported memory size
+  - ip_set: Include kernel header instead of UAPI (Serhey Popovych)
+  - netfilter: ipset: Fix "INFO: rcu detected stall in hash_xxx" reports
+  - netfilter: ipset: fix suspicious RCU usage in find_set_and_id
+  - Add compatibility support for bitmap_zalloc() and bitmap_zero()
+  - netfilter: ipset: use bitmap infrastructure completely
+  - netfilter: fix a use-after-free in mtype_destroy() (Cong Wang)
+
 7.5
   - netfilter: ipset: avoid null deref when IPSET_ATTR_LINENO is present
     (Florian Westphal)

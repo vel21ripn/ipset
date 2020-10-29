@@ -56,6 +56,8 @@ enum ipset_keywords {
 	IPSET_ARG_SKBMARK,			/* skbmark */
 	IPSET_ARG_SKBPRIO,			/* skbprio */
 	IPSET_ARG_SKBQUEUE,			/* skbqueue */
+	IPSET_ARG_BUCKETSIZE,			/* bucketsize */
+	IPSET_ARG_INITVAL,			/* initval */
 	IPSET_ARG_MAX,
 };
 

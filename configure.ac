@@ -1,5 +1,5 @@
 dnl Boilerplate
-AC_INIT([ipset], [7.5], [kadlec@netfilter.org])
+AC_INIT([ipset], [7.7], [kadlec@netfilter.org])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CANONICAL_HOST
 AC_CONFIG_MACRO_DIR([m4])
@@ -206,6 +206,30 @@ AC_CHECK_FUNCS(gethostbyname2)
 if test "$BUILDKMOD" == "yes"
 then
 dnl Check kernel incompatibilities... Ugly like hell
+
+AC_MSG_CHECKING([kernel source for INIT_DEFERRABLE_WORK])
+if test -f $ksourcedir/include/linux/workqueue.h && \
+   $GREP -q 'INIT_DEFERRABLE_WORK' $ksourcedir/include/linux/workqueue.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_INIT_DEFERRABLE_WORK, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_INIT_DEFERRABLE_WORK, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for system_power_efficient_wq])
+if test -f $ksourcedir/include/linux/workqueue.h && \
+   $GREP -q 'system_power_efficient_wq' $ksourcedir/include/linux/workqueue.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_SYSTEM_POWER_EFFICIENT_WQ, define)
+elif test -f $ksourcedir/include/linux/workqueue.h && \
+   $GREP -q 'system_wq' $ksourcedir/include/linux/workqueue.h; then
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_SYSTEM_POWER_EFFICIENT_WQ, undef)
+else
+	AC_MSG_ERROR([Kernel source tree is too old, at least v2.36 is required])
+fi
+
 AC_MSG_CHECKING([kernel source for struct xt_action_param])
 if test -f $ksourcedir/include/linux/netfilter/x_tables.h && \
    $GREP -q 'struct xt_action_param' $ksourcedir/include/linux/netfilter/x_tables.h; then
@@ -295,9 +319,13 @@ elif test -f $ksourcedir/include/linux/netlink.h && \
    $AWK '/ netlink_dump_start\(/,/\)/' $ksourcedir/include/linux/netlink.h | $GREP -q 'min_dump_alloc.*;'; then
 	AC_MSG_RESULT(6 args)
 	AC_SUBST(HAVE_NETLINK_DUMP_START_ARGS, 6)
-else
+elif test -f $ksourcedir/include/linux/netlink.h && \
+   $AWK '/^struct netlink_dump_control {/,/\}/' $ksourcedir/include/linux/netlink.h | $GREP -q '\(\*start\)'; then
 	AC_MSG_RESULT(4 args)
 	AC_SUBST(HAVE_NETLINK_DUMP_START_ARGS, 4)
+else
+	AC_MSG_RESULT(7 fake args)
+	AC_SUBST(HAVE_NETLINK_DUMP_START_ARGS, 7)
 fi
 
 AC_MSG_CHECKING([kernel source for ns_capable])
@@ -427,6 +455,26 @@ if test -f $ksourcedir/include/linux/mm.h && \
 else
 	AC_MSG_RESULT(no)
 	AC_SUBST(HAVE_KVFREE, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for bitmap_zalloc])
+if test -f $ksourcedir/include/linux/bitmap.h && \
+   $GREP -q 'bitmap_zalloc' $ksourcedir/include/linux/bitmap.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_BITMAP_ZALLOC, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_BITMAP_ZALLOC, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for bitmap_zero])
+if test -f $ksourcedir/include/linux/bitmap.h && \
+   $GREP -q 'bitmap_zero' $ksourcedir/include/linux/bitmap.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_BITMAP_ZERO, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_BITMAP_ZERO, undef)
 fi
 
 AC_MSG_CHECKING([kernel source for struct net in struct xt_mtchk_param])
