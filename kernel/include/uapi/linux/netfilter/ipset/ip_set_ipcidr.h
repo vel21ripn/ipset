@@ -7,11 +7,14 @@
 #define MAX_RANGE 0x0000FFFF
 
 struct _tree_node {
-	u32		  ip;
-	uint16_t	  mlen,f_tmo:1,f_act:1,f_mark:1;
-	unsigned long	  expired;
-	uint32_t	  mark,mask;
 	struct _tree_node *l0,*l1;
+	uint32_t	  mark,mask;
+	unsigned long	  expired;
+	u32		  ip;
+	uint16_t	  mlen;
+	uint8_t		  f_strlen,f_tmo:1,f_act:1,f_mark:1,f_cnt:1;
+	/* struct ip_set_counter */
+	/* *(struct one_string) */
 };
 typedef struct _tree_node tree_node_t;
 
@@ -21,10 +24,12 @@ struct ip_set_ipcidr {
 	uint32_t	mark,mask;
 	unsigned int	gc_interval;
 #ifdef __KERNEL__
+	spinlock_t	str_lock;
 	struct ip_set	*set;
 	struct timer_list gc;
 	tree_node_t	*tree;
 	int		node_count;
+	struct list_head str;
 	uint32_t	flags;
 #endif
 };
@@ -40,7 +45,8 @@ struct ip_set_req_ipcidr {
 	uint32_t mark,mask;
 	unsigned int timeout;
 	u32	  ip2;
-	unsigned int f_tmo:1,f_act:1,f_excl:1,f_mark:1;
+	unsigned int f_tmo:1,f_act:1,f_excl:1,f_mark:1,f_string;
+	char	 str[IPSET_MAX_COMMENT_SIZE];
 };
 
 #endif	/* __IP_SET_CIDREE_H */

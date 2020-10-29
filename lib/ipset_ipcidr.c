@@ -113,6 +113,14 @@ static const struct ipset_arg ipcidr_create_args[] = {
 	  .has_arg = IPSET_NO_ARG,		.opt = IPSET_OPT_SKBINFO,
 	  .parse = ipset_parse_flag,		.print = ipset_print_flag,
 	},
+	{ .name = { "comments", NULL },
+	  .has_arg = IPSET_NO_ARG,		.opt = IPSET_OPT_CREATE_COMMENT,
+	  .parse = ipset_parse_flag,		.print = ipset_print_flag,
+	},
+	{ .name = { "counters", NULL },
+	  .has_arg = IPSET_NO_ARG,		.opt = IPSET_OPT_COUNTERS,
+	  .parse = ipset_parse_flag,		.print = ipset_print_flag,
+	},
 	{ },
 };
 
@@ -124,6 +132,14 @@ static const struct ipset_arg ipcidr_add_args[] = {
 	{ .name = { "skbmark", NULL },
 	  .has_arg = IPSET_MANDATORY_ARG,       .opt = IPSET_OPT_SKBMARK,
 	  .parse = ipset_parse_skbmark,         .print = ipset_print_skbmark,
+	},
+	{ .name = { "comments", NULL },
+	  .has_arg = IPSET_NO_ARG,		.opt = IPSET_OPT_ADT_COMMENT,
+	  .parse = ipset_parse_flag,		.print = ipset_print_flag,
+	},
+	{ .name = { "counters", NULL },
+	  .has_arg = IPSET_NO_ARG,		.opt = IPSET_OPT_COUNTERS,
+	  .parse = ipset_parse_flag,		.print = ipset_print_flag,
 	},
 	{ },
 };
@@ -160,16 +176,21 @@ struct ipset_type ipset_ipcidr0 = {
 				IPSET_ARG_NETMASK,
 				IPSET_ARG_TIMEOUT,
 				IPSET_ARG_SKBINFO,
+				IPSET_ARG_COUNTERS,
+				IPSET_ARG_COMMENT,
 				IPSET_ARG_NONE
 			},
 			.need = 0,
 			.full = 0,
-			.help = "[--netmask N] [--timeout N] [--skbinfo]",
+			.help = "[--netmask N] [--timeout N] [--skbinfo] [--counters] [--comments]",
 		},
 		[IPSET_ADD] = {
 			.args = {
 				IPSET_ARG_TIMEOUT,
 				IPSET_ARG_SKBMARK,
+				IPSET_ARG_ADT_COMMENT,
+				IPSET_ARG_PACKETS,
+				IPSET_ARG_BYTES,
 				IPSET_ARG_NONE
 			},
 			.need = IPSET_FLAG(IPSET_OPT_IP),
@@ -197,7 +218,7 @@ struct ipset_type ipset_ipcidr0 = {
 				
 	},
 	.usage = "Timeout and skbinfo support.",
-	.description = "timeout, skbinfo support. IPv4 only.",
+	.description = "timeout, comment, counters, skbinfo support. IPv4 only.",
 };
 
 void _init(void);
