@@ -22,6 +22,29 @@
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/ipset/ip_set.h>
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
+/* backport from 5.4 */
+#define check_arg_count_one(dummy)
+
+#ifdef CONFIG_PROVE_RCU_LIST
+#define __list_check_rcu(dummy, cond, extra...)                         \
+        ({                                                              \
+        check_arg_count_one(extra);                                     \
+        RCU_LOCKDEP_WARN(!cond && !rcu_read_lock_any_held(),            \
+                         "RCU-list traversed in non-reader section!");  \
+         })
+#else
+#define __list_check_rcu(dummy, cond, extra...)                         \
+        ({ check_arg_count_one(extra); })
+#endif
+
+#define list_for_each_entry_rcu_cond(pos, head, member, cond...)             \
+        for (__list_check_rcu(dummy, ## cond, 0),                       \
+             pos = list_entry_rcu((head)->next, typeof(*pos), member);  \
+                &pos->member != (head);                                 \
+                pos = list_entry_rcu(pos->member.next, typeof(*pos), member))
+#endif
+
 static LIST_HEAD(ip_set_type_list);		/* all registered set types */
 static DEFINE_MUTEX(ip_set_type_mutex);		/* protects ip_set_type_list */
 static DEFINE_RWLOCK(ip_set_ref_lock);		/* protects the set refs */
@@ -86,7 +109,7 @@ find_set_type(const char *name, u8 family, u8 revision)
 {
 	struct ip_set_type *type;
 
-	list_for_each_entry_rcu(type, &ip_set_type_list, list,
+	list_for_each_entry_rcu_cond(type, &ip_set_type_list, list,
 				lockdep_is_held(&ip_set_type_mutex))
 		if (STRNCMP(type->name, name) &&
 		    (type->family == family ||
