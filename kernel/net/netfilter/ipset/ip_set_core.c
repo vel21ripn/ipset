@@ -38,7 +38,9 @@
         ({ check_arg_count_one(extra); })
 #endif
 
-#define list_for_each_entry_rcu_cond(pos, head, member, cond...)             \
+#undef list_for_each_entry_rcu
+
+#define list_for_each_entry_rcu(pos, head, member, cond...)             \
         for (__list_check_rcu(dummy, ## cond, 0),                       \
              pos = list_entry_rcu((head)->next, typeof(*pos), member);  \
                 &pos->member != (head);                                 \
@@ -109,7 +111,7 @@ find_set_type(const char *name, u8 family, u8 revision)
 {
 	struct ip_set_type *type;
 
-	list_for_each_entry_rcu_cond(type, &ip_set_type_list, list,
+	list_for_each_entry_rcu(type, &ip_set_type_list, list,
 				lockdep_is_held(&ip_set_type_mutex))
 		if (STRNCMP(type->name, name) &&
 		    (type->family == family ||
