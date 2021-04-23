@@ -21,6 +21,7 @@
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/ipset/ip_set.h>
+#include <linux/netfilter/ipset/ip_set_compiler.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
 /* backport from 5.4 */
@@ -111,8 +112,8 @@ find_set_type(const char *name, u8 family, u8 revision)
 {
 	struct ip_set_type *type;
 
-	list_for_each_entry_rcu(type, &ip_set_type_list, list,
-				lockdep_is_held(&ip_set_type_mutex))
+	list_for_each_entry_rcu_compat(type, &ip_set_type_list, list,
+				       lockdep_is_held(&ip_set_type_mutex))
 		if (STRNCMP(type->name, name) &&
 		    (type->family == family ||
 		     type->family == NFPROTO_UNSPEC) &&
@@ -275,22 +276,7 @@ EXPORT_SYMBOL_GPL(ip_set_type_unregister);
 void *
 ip_set_alloc(size_t size)
 {
-	void *members = NULL;
-
-	if (size < KMALLOC_MAX_SIZE)
-		members = kzalloc(size, GFP_KERNEL | __GFP_NOWARN);
-
-	if (members) {
-		pr_debug("%p: allocated with kmalloc\n", members);
-		return members;
-	}
-
-	members = vzalloc(size);
-	if (!members)
-		return NULL;
-	pr_debug("%p: allocated with vmalloc\n", members);
-
-	return members;
+	return kvzalloc(size, GFP_KERNEL_ACCOUNT);
 }
 EXPORT_SYMBOL_GPL(ip_set_alloc);
 
@@ -311,8 +297,7 @@ flag_nested(const struct nlattr *nla)
 
 static const struct nla_policy ipaddr_policy[IPSET_ATTR_IPADDR_MAX + 1] = {
 	[IPSET_ATTR_IPADDR_IPV4]	= { .type = NLA_U32 },
-	[IPSET_ATTR_IPADDR_IPV6]	= { .type = NLA_BINARY,
-					    .len = sizeof(struct in6_addr) },
+	[IPSET_ATTR_IPADDR_IPV6]	= NLA_POLICY_EXACT_LEN(sizeof(struct in6_addr)),
 };
 
 int
@@ -1374,11 +1359,11 @@ IPSET_CBFN(ip_set_rename, struct net *net, struct sock *ctnl,
 			goto out;
 		}
 	}
-	strncpy(set->name, name2, IPSET_MAXNAMELEN);
+	ret = strscpy(set->name, name2, IPSET_MAXNAMELEN);
 
 out:
 	write_unlock_bh(&ip_set_ref_lock);
-	return ret;
+	return ret < 0 ? ret : 0;
 }
 
 /* Swap two sets so that name/index points to the other.

@@ -56,6 +56,12 @@
 #@HAVE_LOCKDEP_NFNL_IS_HELD@ HAVE_LOCKDEP_NFNL_IS_HELD
 #@HAVE_COND_RESCHED_RCU@ HAVE_COND_RESCHED_RCU
 #@HAVE_SKB_IIF@ HAVE_SKB_IIF
+#@HAVE_LIST_FOR_EACH_ENTRY_RCU_FOUR_ARGS@ HAVE_LIST_FOR_EACH_ENTRY_RCU_FOUR_ARGS
+#@HAVE_SKB_PROTOCOL@ HAVE_SKB_PROTOCOL
+#@HAVE_NLA_POLICY_EXACT_LEN@ HAVE_NLA_POLICY_EXACT_LEN
+#@HAVE_KVZALLOC@ HAVE_KVZALLOC
+#@HAVE_GFP_KERNEL_ACCOUNT@ HAVE_GFP_KERNEL_ACCOUNT
+#@HAVE_NLA_STRSCPY@ HAVE_NLA_STRSCPY
 
 #ifdef HAVE_EXPORT_SYMBOL_GPL_IN_MODULE_H
 #include <linux/module.h>
@@ -371,6 +377,9 @@ static inline int nla_put_in6_addr(struct sk_buff *skb, int attrtype,
 
 static inline __be16 tc_skb_protocol(const struct sk_buff *skb)
 {
+#ifdef HAVE_SKB_PROTOCOL
+	return skb_protocol(skb, true);
+#else
 	if (skb_vlan_tag_present(skb))
 #ifdef HAVE_VLAN_PROTO_IN_SK_BUFF
 		return skb->vlan_proto;
@@ -378,6 +387,7 @@ static inline __be16 tc_skb_protocol(const struct sk_buff *skb)
 		return htons(ETH_P_8021Q);
 #endif
 	return skb->protocol;
+#endif
 }
 #endif
 
@@ -437,7 +447,16 @@ static inline u16 nfnl_msg_type(u8 subsys, u8 msg_type)
 #endif
 
 #ifndef HAVE_STRSCPY
-#define	strscpy(dst, src, n)	(strncpy(dst, src, n) == (dst))
+static inline ssize_t strscpy(char * dest, const char * src, size_t count)
+{
+	size_t ret = strlcpy(dest, src, count);
+
+	return (ret >= count ? -E2BIG : ret);
+}
+#endif
+
+#ifndef HAVE_NLA_STRSCPY
+#define nla_strscpy	nla_strlcpy
 #endif
 
 #ifndef smp_mb__before_atomic
@@ -469,17 +488,46 @@ static inline u16 nfnl_msg_type(u8 subsys, u8 msg_type)
 #define dev_get_by_index_rcu __dev_get_by_index
 #endif
 
-/* Compiler attributes */
-#ifndef __has_attribute
-# define __has_attribute(x) __GCC4_has_attribute_##x
-# define __GCC4_has_attribute___fallthrough__		0
-#endif
-
-#if __has_attribute(__fallthrough__)
-# define fallthrough			__attribute__((__fallthrough__))
+#ifdef HAVE_LIST_FOR_EACH_ENTRY_RCU_FOUR_ARGS
+#define list_for_each_entry_rcu_compat(pos, head, member, cond) \
+	list_for_each_entry_rcu(pos, head, member, cond)
 #else
-# define fallthrough			do {} while (0)  /* fallthrough */
+#define list_for_each_entry_rcu_compat(pos, head, member, cond) \
+	list_for_each_entry_rcu(pos, head, member)
 #endif
 
+#ifndef HAVE_NLA_POLICY_EXACT_LEN
+#define NLA_POLICY_EXACT_LEN(_len) {		\
+	.type = NLA_UNSPEC,			\
+	.len = _len				\
+}
+#endif
+
+#ifndef HAVE_KVZALLOC
+#include <linux/slab.h>
+#include <linux/vmalloc.h>
+#ifndef GFP_KERNEL_ACCOUNT
+#define GFP_KERNEL_ACCOUNT GFP_KERNEL
+#endif
+static inline void *kvzalloc(size_t size, gfp_t flags)
+{
+	void *members = NULL;
+
+	if (size < KMALLOC_MAX_SIZE)
+		members = kzalloc(size, GFP_KERNEL | __GFP_NOWARN);
+
+	if (members) {
+		pr_debug("%p: allocated with kmalloc\n", members);
+		return members;
+	}
+
+	members = vzalloc(size);
+	if (!members)
+		return NULL;
+	pr_debug("%p: allocated with vmalloc\n", members);
+
+	return members;
+}
+#endif
 #endif /* IP_SET_COMPAT_HEADERS */
 #endif /* __IP_SET_COMPAT_H */

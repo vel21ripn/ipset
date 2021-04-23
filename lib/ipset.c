@@ -27,6 +27,7 @@
 #include <libipset/print.h>			/* ipset_print_family */
 #include <libipset/utils.h>			/* STREQ */
 #include <libipset/ipset.h>			/* prototypes */
+#include <libipset/ip_set_compiler.h>		/* compiler attributes */
 
 static char program_name[] = PACKAGE;
 static char program_version[] = PACKAGE_VERSION;
@@ -949,6 +950,11 @@ ipset_parse_argv(struct ipset *ipset, int oargc, char *oargv[])
 	int argc = oargc;
 	char *argv[MAX_ARGS] = {};
 
+	if (argc > MAX_ARGS)
+		return ipset->custom_error(ipset,
+				p, IPSET_PARAMETER_PROBLEM,
+				"Line is too long to parse.");
+
 	/* We need a local copy because of ipset_shift_argv */
 	memcpy(argv, oargv, sizeof(char *) * argc);
 
@@ -1208,6 +1214,7 @@ ipset_parse_argv(struct ipset *ipset, int oargc, char *oargv[])
 				return ret;
 		}
 		/* Fall through to parse optional setname */
+		fallthrough;
 	case IPSET_CMD_DESTROY:
 	case IPSET_CMD_FLUSH:
 		/* Args: [setname] */

@@ -1,5 +1,5 @@
 dnl Boilerplate
-AC_INIT([ipset], [7.7], [kadlec@netfilter.org])
+AC_INIT([ipset], [7.11], [kadlec@netfilter.org])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CANONICAL_HOST
 AC_CONFIG_MACRO_DIR([m4])
@@ -725,6 +725,16 @@ else
 	AC_SUBST(HAVE_LOCKDEP_NFNL_IS_HELD, undef)
 fi
 
+AC_MSG_CHECKING([kernel source for nla_strscpy() in netlink.h])
+if test -f $ksourcedir/include/net/netlink.h && \
+   $GREP -q ' nla_strscpy' $ksourcedir/include/net/netlink.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_NLA_STRSCPY, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_NLA_STRSCPY, undef)
+fi
+
 AC_MSG_CHECKING([kernel source for strscpy() in string.h])
 if test -f $ksourcedir/include/linux/timer.h && \
    $GREP -q ' strscpy' $ksourcedir/include/linux/string.h; then
@@ -744,6 +754,56 @@ if test -f $ksourcedir/include/linux/rcupdate.h && \
 else
 	AC_MSG_RESULT(no)
 	AC_SUBST(HAVE_SYNCHRONIZE_RCU_BH, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for the fourth arg of list_for_each_entry_rcu() in rculist.h])
+if test -f $ksourcedir/include/linux/rculist.h && \
+   $GREP -q 'define list_for_each_entry_rcu(pos, head, member, cond' $ksourcedir/include/linux/rculist.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_LIST_FOR_EACH_ENTRY_RCU_FOUR_ARGS, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_LIST_FOR_EACH_ENTRY_RCU_FOUR_ARGS, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for skb_protocol() in if_vlan.h])
+if test -f $ksourcedir/include/linux/if_vlan.h && \
+   $GREP -q 'static inline __be16 skb_protocol' $ksourcedir/include/linux/if_vlan.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_SKB_PROTOCOL, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_SKB_PROTOCOL, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for NLA_POLICY_EXACT_LEN() in netlink.h])
+if test -f $ksourcedir/include/net/netlink.h && \
+   $GREP -q 'define NLA_POLICY_EXACT_LEN' $ksourcedir/include/net/netlink.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_NLA_POLICY_EXACT_LEN, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_NLA_POLICY_EXACT_LEN, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for kvzalloc() in mm.h])
+if test -f $ksourcedir/include/linux/mm.h && \
+   $GREP -q 'static inline void \*kvzalloc(' $ksourcedir/include/linux/mm.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_KVZALLOC, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_KVZALLOC, undef)
+fi
+
+AC_MSG_CHECKING([kernel source for GFP_KERNEL_ACCOUNT in gfp.h])
+if test -f $ksourcedir/include/linux/gfp.h && \
+   $GREP -q 'define GFP_KERNEL_ACCOUNT' $ksourcedir/include/linux/gfp.h; then
+	AC_MSG_RESULT(yes)
+	AC_SUBST(HAVE_GFP_KERNEL_ACCOUNT, define)
+else
+	AC_MSG_RESULT(no)
+	AC_SUBST(HAVE_GFP_KERNEL_ACCOUNT, undef)
 fi
 
 AC_MSG_CHECKING([kernel source for struct net_generic])
@@ -801,7 +861,8 @@ dnl Checks for library functions.
 dnl Generate output
 AC_CONFIG_FILES([Makefile include/libipset/Makefile
 	lib/Makefile lib/libipset.pc src/Makefile utils/Makefile
-	kernel/include/linux/netfilter/ipset/ip_set_compat.h])
+	kernel/include/linux/netfilter/ipset/ip_set_compat.h
+	kernel/include/linux/netfilter/ipset/ip_set_compiler.h])
 AC_OUTPUT
 
 dnl Summary
