@@ -71,7 +71,7 @@ struct ip_set_string {
     spinlock_t    ac_lock;
     one_string_t  *first;
     AC_AUTOMATA_t __rcu *automata;
-    uint32_t      flags;
+    uint32_t      flags,lc;
 };
 
 #ifdef IP_SET_DEBUG
@@ -201,39 +201,63 @@ struct acho_ret {
         int exact;
 };
 
-static int acho_match_mc(AC_MATCH_t *m, AC_TEXT_t *txt, void *param) {
-    struct acho_ret *p = (struct acho_ret *)param;
-    if(!p->exact || 
-            (m->patterns->length == txt->length &&
-             !memcmp(m->patterns->astring,txt->astring,txt->length))) {
-        p->id = m->patterns->rep.number;
-        p->name = m->patterns->astring;
-        p->len = m->patterns->length;
-        if(p->exact) return 1;
-    }
+#ifdef IP_SET_DEBUG
+#define MATCH_DEBUG_INFO(fmt, ...) if(txt->debug) printk(fmt, ##__VA_ARGS__)
+#else
+#define MATCH_DEBUG_INFO(fmt, ...)
+#endif
+static int acho_match_mc(AC_MATCH_t *m, AC_TEXT_t *txt, void *match) {
+  AC_PATTERN_t *pattern = m->patterns;
+  struct acho_ret *p = (struct acho_ret *)match;
+  int i,start,end = m->position;
+
+  for(i=0; i < m->match_num; i++,pattern++) {
+    /*
+     * See ac_automata_exact_match()
+     * The bit is set if the pattern exactly matches AND
+     * the length of the pattern is longer than that of the previous one.
+     * Skip shorter (less precise) templates.
+     */
+    if(!(m->match_mask & (1 << i)))
+            continue;
+    start = end - pattern->length;
+
+    MATCH_DEBUG_INFO("[NDPI] Searching: [to search: %.*s/%u][pattern: %s%.*s%s/%u] %d-%d\n",
+            txt->length, txt->astring,(unsigned int) txt->length,
+            m->patterns[0].rep.from_start ? "^":"",
+            (unsigned int) pattern->length, pattern->astring,
+            m->patterns[0].rep.at_end ? "$":"", (unsigned int) pattern->length,
+            start,end);
+
+    p->id = m->patterns->rep.number;
+    p->name = m->patterns->astring;
+    p->len = m->patterns->length;
+    if(start == 0 && end == txt->length && p->exact) return 1;
+
     if(p->set && p->ext) {
         struct ip_set_counter *counter = 
                 (struct ip_set_counter *)(m->patterns->astring - sizeof(struct ip_set_counter));
         ip_set_update_counter(counter,p->ext,0);
     }
-//  printk("CB %s l:%u n:%u\n",m->patterns->astring,m->patterns->length,m->patterns->rep.number);
-    return 0;
+  }
+  return 0;
 }
 
 static int acho_match_string0(AC_AUTOMATA_t *automa, 
                 char *string_to_match,size_t len) {
   AC_TEXT_t ac_input_text;
-  AC_MATCH_t ac_match;
   struct acho_ret match;
 
   if((automa == NULL) || (string_to_match == NULL) || (string_to_match[0] == '\0'))
     return 0;
 
-  memset((char *)&ac_match,0,sizeof(ac_match));
+  memset((char *)&match,0,sizeof(match));
+  memset((char *)&ac_input_text,0,sizeof(ac_input_text));
+
   match.exact = 1;
   ac_input_text.astring = string_to_match, ac_input_text.length = len;
 
-  ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match);
+  ac_automata_search(automa, &ac_input_text, (void *)&match);
   return match.id > 0;
 }
 
@@ -241,14 +265,14 @@ noinline static int acho_match_string(AC_AUTOMATA_t *automa,
                 struct frag_array *frag, size_t frag_num,
                 struct ip_set *set, const struct ip_set_ext *ext) {
   AC_TEXT_t ac_input_text;
-  AC_MATCH_t ac_match;
   struct acho_ret match;
   int i;
 
   if((automa == NULL) || (frag == NULL) || (frag[0].ptr == NULL) || (frag_num == 0))
     return 0;
 
-  memset((char *)&ac_match,0,sizeof(ac_match));
+  memset((char *)&match,0,sizeof(match));
+  memset((char *)&ac_input_text,0,sizeof(ac_input_text));
   match.id = 0;
 
   if(set && ext) {
@@ -257,8 +281,8 @@ noinline static int acho_match_string(AC_AUTOMATA_t *automa,
         for(i = 0; i < frag_num; i++) {
             ac_input_text.astring = frag[i].ptr, ac_input_text.length = frag[i].len;
             if(!frag[i].ptr || !frag[i].len) continue;
-            if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match))
-                    return 1; /* ??? */
+            ac_automata_search(automa, &ac_input_text, (void *)&match);
+			ac_input_text.next_search = 1;
 #ifdef IP_SET_DEBUG
 	    if(frag[i].len < 256) {
         	char buf[256*2+2];
@@ -272,8 +296,9 @@ noinline static int acho_match_string(AC_AUTOMATA_t *automa,
   }
   for(i = 0; i < frag_num; i++) {
       ac_input_text.astring = frag[i].ptr, ac_input_text.length = frag[i].len;
-      if(ac_automata_search(automa, &ac_match, &ac_input_text, acho_match_mc, (void *)&match))
+      if(ac_automata_search(automa, &ac_input_text, (void *)&match))
               return 1;
+	  ac_input_text.next_search = 1;
   }
   return 0;
 
@@ -283,7 +308,7 @@ noinline static int acho_match_string(AC_AUTOMATA_t *automa,
 
 static void automata_release(struct rcu_head *head) {
 		AC_AUTOMATA_t *tmp = container_of(head, AC_AUTOMATA_t, rcu);
-        ac_automata_release(tmp);
+        ac_automata_release(tmp,0);
 }
 
 static void acho_replace(struct ip_set_string *map, AC_AUTOMATA_t *automata) {
@@ -323,9 +348,9 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
 
     memset(&ac_pattern, 0, sizeof(ac_pattern));
 
-    automata = ac_automata_init();
+    automata = ac_automata_init(acho_match_mc);
     if(!automata) return -ENOMEM;
-
+	ac_automata_feature(automata,AC_FEATURE_NO_ROOT_RANGE | (map->lc ? AC_FEATURE_LC:0));
 	spin_lock(&map->first_lock);
 
 	for(p = NULL,n = map->first; n; n = t) {
@@ -348,7 +373,7 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
         ac_pattern.length = n->hlen;
         ac_pattern.rep.number = 1;
         if(ac_automata_add(automata, &ac_pattern) != ACERR_SUCCESS) {
-            ac_automata_release(automata);
+            ac_automata_release(automata,0);
             return -1;
         }
         if(minlen < n->hlen) minlen = n->hlen;
@@ -359,7 +384,7 @@ static int acho_build(struct ip_set_string *map, int op, one_string_t *str) {
         ac_pattern.length  = str->hlen;
         ac_pattern.rep.number = 1;
         if(ac_automata_add(automata, &ac_pattern) != ACERR_SUCCESS) {
-            ac_automata_release(automata);
+            ac_automata_release(automata,0);
             return -1;
         }
         if(minlen < str->hlen) minlen = str->hlen;
@@ -703,7 +728,7 @@ static const struct ip_set_type_variant string_op = {
     .list   = string_list,
 };
 
-static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 flags)
+static int _create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 flags,int lc)
 {
     struct ip_set_string *map;
 
@@ -725,6 +750,7 @@ static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 
     rcu_assign_pointer(map->automata, NULL);
     map->count = 0;
     map->minlen = 0;
+    map->lc = lc;
 
     spin_lock_init(&map->first_lock);
     spin_lock_init(&map->ac_lock);
@@ -736,6 +762,13 @@ static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 
                     __alignof__(sizeof(one_string_t)));
     return 0;
 }
+static int create(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 flags) {
+	return _create(net,set,tb,flags,0);
+}
+static int create_lc(struct net *net, struct ip_set *set, struct nlattr *tb[], u32 flags) {
+	return _create(net,set,tb,flags,1);
+}
+
 
 static struct ip_set_type string_type __read_mostly = {
     .name       = "string",
@@ -759,6 +792,29 @@ static struct ip_set_type string_type __read_mostly = {
     },
     .me     = THIS_MODULE,
 };
+static struct ip_set_type string_type_lc __read_mostly = {
+    .name       = "string_lc",
+    .protocol   = IPSET_PROTOCOL,
+    .features   = IPSET_TYPE_NAME,
+    .dimension  = IPSET_DIM_ONE,
+    .family         = NFPROTO_UNSPEC,
+    .revision_min   = 3,
+    .revision_max   = 3,
+    .create     = create_lc,
+    .create_policy  = {
+        [IPSET_ATTR_CADT_FLAGS] = { .type = NLA_U32 },
+    },
+    .adt_policy = {
+        [IPSET_ATTR_COMMENT]    = { .type = NLA_NUL_STRING,
+                                    .len  = IPSET_MAX_COMMENT_SIZE },
+        [IPSET_ATTR_BYTES]      = { .type = NLA_U64 },
+        [IPSET_ATTR_PACKETS]    = { .type = NLA_U64 },
+
+        [IPSET_ATTR_LINENO]     = { .type = NLA_U32 },
+    },
+    .me     = THIS_MODULE,
+};
+
 
 
 MODULE_LICENSE("GPL");
@@ -767,11 +823,14 @@ MODULE_DESCRIPTION("string type of IP sets");
 
 static int __init init(void)
 {
-    return ip_set_type_register(&string_type);
+    int r = ip_set_type_register(&string_type);
+	if(r) return r;
+    return ip_set_type_register(&string_type_lc);
 }
 
 static void __exit fini(void)
 {
+    ip_set_type_unregister(&string_type_lc);
     ip_set_type_unregister(&string_type);
 }
 

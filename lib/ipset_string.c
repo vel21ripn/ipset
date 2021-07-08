@@ -34,7 +34,7 @@ static const char string_usage[] =
 
 struct ipset_type ipset_string0 = {
 	.name = "string",
-	.alias = { "string", NULL },
+	.alias = { "string", "string_lc", NULL },
 	.revision = 3,
 	.family = NFPROTO_IPSET_IPV46,
 	.dimension = IPSET_DIM_ONE,
