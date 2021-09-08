@@ -521,6 +521,34 @@ ip_set_init_counter(struct ip_set_counter *counter,
 		atomic64_set(&(counter)->packets, (long long)(ext->packets));
 }
 
+void ip_set_update_counter(struct ip_set_counter *counter,
+			   const struct ip_set_ext *ext, u32 flags);
+bool ip_set_put_counter(struct sk_buff *skb, const struct ip_set_counter *counter);
+
+static inline u64
+ip_set_get_bytes(const struct ip_set_counter *counter)
+{ 
+	        return (u64)atomic64_read(&(counter)->bytes);
+} 
+
+static inline u64
+ip_set_get_packets(const struct ip_set_counter *counter)
+{
+	        return (u64)atomic64_read(&(counter)->packets);
+}
+
+static inline void
+ip_set_add_bytes(u64 bytes, struct ip_set_counter *counter)
+{
+	        atomic64_add((long long)bytes, &(counter)->bytes);
+}
+
+static inline void
+ip_set_add_packets(u64 packets, struct ip_set_counter *counter)
+{
+	        atomic64_add((long long)packets, &(counter)->packets);
+}
+
 static inline void
 ip_set_init_skbinfo(struct ip_set_skbinfo *skbinfo,
 		    const struct ip_set_ext *ext)

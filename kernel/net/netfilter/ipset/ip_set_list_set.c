@@ -22,6 +22,9 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@netfilter.org>");
 IP_SET_MODULE_DESC("list:set", IPSET_TYPE_REV_MIN, IPSET_TYPE_REV_MAX);
 MODULE_ALIAS("ip_set_list:set");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+MODULE_IMPORT_NS(NET_IPSET);
+#endif
 
 /* Member elements  */
 struct set_elem {

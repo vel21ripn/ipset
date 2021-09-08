@@ -27,6 +27,22 @@
 #include <linux/bitops.h>
 #include <linux/unaligned/packed_struct.h>
 
+#ifndef fallthrough
+
+/* Compiler attributes */
+#ifndef __has_attribute
+# define __has_attribute(x) __GCC4_has_attribute_##x
+# define __GCC4_has_attribute___fallthrough__           0
+#endif
+
+#if __has_attribute(__fallthrough__)
+# define fallthrough                    __attribute__((__fallthrough__))
+#else
+# define fallthrough                    do {} while (0)  /* fallthrough */
+#endif
+
+#endif
+
 /* Best hash sizes are of power of two */
 #define jhash_size(n)   ((u32)1<<(n))
 /* Mask the hash value, i.e (value & jhash_mask(n)) instead of (value % n) */
@@ -115,6 +131,10 @@ static inline u32 jhash(const void *key, u32 length, u32 initval)
  *
  * Returns the hash value of the key.
  */
+#if defined(__GNUC__) && (__GNUC__ > 8)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="
+#endif
 static inline u32 jhash2(const u32 *k, u32 length, u32 initval)
 {
 	u32 a, b, c;
@@ -144,7 +164,9 @@ static inline u32 jhash2(const u32 *k, u32 length, u32 initval)
 
 	return c;
 }
-
+#if defined(__GNUC__) && (__GNUC__ > 8)
+#pragma GCC diagnostic pop
+#endif
 /* jhash_3words - hash exactly 3, 2 or 1 word(s) */
 static inline u32 jhash_3words(u32 a, u32 b, u32 c, u32 initval)
 {

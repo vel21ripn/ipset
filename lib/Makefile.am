@@ -4,6 +4,7 @@ IPSET_SETTYPE_LIST = \
 	ipset_bitmap_ip.c \
 	ipset_bitmap_ipmac.c \
 	ipset_bitmap_port.c \
+	ipset_string.c \
 	ipset_hash_ip.c \
 	ipset_hash_ipport.c \
 	ipset_hash_ipmark.c \
@@ -16,6 +17,7 @@ IPSET_SETTYPE_LIST = \
 	ipset_hash_netiface.c \
 	ipset_hash_ipmac.c \
 	ipset_hash_mac.c \
+	ipset_ipcidr.c \
 	ipset_list_set.c
 
 AM_CFLAGS += ${libmnl_CFLAGS}

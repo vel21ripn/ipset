@@ -93,6 +93,7 @@ bitmap_ipmac_do_test(const struct bitmap_ipmac_adt_elem *e,
 	elem = get_const_elem(map->extensions, e->id, dsize);
 	if (e->add_mac && elem->filled == MAC_FILLED)
 		return ether_addr_equal(e->ether, elem->ether);
+	if(elem->filled == MAC_UNSET) return 1;
 	/* Trigger kernel to fill out the ethernet address */
 	return -EAGAIN;
 }

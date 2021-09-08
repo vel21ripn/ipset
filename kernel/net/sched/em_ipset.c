@@ -19,6 +19,9 @@
 #include <net/ip.h>
 #include <net/pkt_cls.h>
 #include <linux/netfilter/ipset/ip_set_compat.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+MODULE_IMPORT_NS(NET_IPSET);
+#endif
 
 #ifdef HAVE_TCF_EMATCH_OPS_CHANGE_ARG_NET
 static int em_ipset_change(struct net *net, void *data, int data_len,

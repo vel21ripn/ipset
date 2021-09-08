@@ -11,6 +11,21 @@
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/ipset/ip_set.h>
 
+/* v7.5 start */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+MODULE_IMPORT_NS(NET_IPSET);
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,1,0)
+#define synchronize_rcu_bh synchronize_rcu
+#endif
+
+#define __ipset_dereference_protected(p, c)	rcu_dereference_protected(p, c)
+#define ipset_dereference_protected(p, set) \
+	__ipset_dereference_protected(p, lockdep_is_held(&(set)->lock))
+
+#define rcu_dereference_bh_nfnl(p)	rcu_dereference_bh_check(p, 1)
+/* v7.5 end */
 #define __ipset_dereference(p)		\
 	rcu_dereference_protected(p, 1)
 #define ipset_dereference_nfnl(p)	\

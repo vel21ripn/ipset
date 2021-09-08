@@ -23,6 +23,31 @@
 #include <linux/netfilter/ipset/ip_set.h>
 #include <linux/netfilter/ipset/ip_set_compiler.h>
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
+/* backport from 5.4 */
+#define check_arg_count_one(dummy)
+
+#ifdef CONFIG_PROVE_RCU_LIST
+#define __list_check_rcu(dummy, cond, extra...)                         \
+        ({                                                              \
+        check_arg_count_one(extra);                                     \
+        RCU_LOCKDEP_WARN(!cond && !rcu_read_lock_any_held(),            \
+                         "RCU-list traversed in non-reader section!");  \
+         })
+#else
+#define __list_check_rcu(dummy, cond, extra...)                         \
+        ({ check_arg_count_one(extra); })
+#endif
+
+#undef list_for_each_entry_rcu
+
+#define list_for_each_entry_rcu(pos, head, member, cond...)             \
+        for (__list_check_rcu(dummy, ## cond, 0),                       \
+             pos = list_entry_rcu((head)->next, typeof(*pos), member);  \
+                &pos->member != (head);                                 \
+                pos = list_entry_rcu(pos->member.next, typeof(*pos), member))
+#endif
+
 static LIST_HEAD(ip_set_type_list);		/* all registered set types */
 static DEFINE_MUTEX(ip_set_type_mutex);		/* protects ip_set_type_list */
 static DEFINE_RWLOCK(ip_set_ref_lock);		/* protects the set refs */
@@ -513,19 +538,7 @@ ip_set_get_extensions(struct ip_set *set, struct nlattr *tb[],
 }
 EXPORT_SYMBOL_GPL(ip_set_get_extensions);
 
-static u64
-ip_set_get_bytes(const struct ip_set_counter *counter)
-{
-	return (u64)atomic64_read(&(counter)->bytes);
-}
-
-static u64
-ip_set_get_packets(const struct ip_set_counter *counter)
-{
-	return (u64)atomic64_read(&(counter)->packets);
-}
-
-static bool
+bool
 ip_set_put_counter(struct sk_buff *skb, const struct ip_set_counter *counter)
 {
 	return IPSET_NLA_PUT_NET64(skb, IPSET_ATTR_BYTES,
@@ -535,6 +548,7 @@ ip_set_put_counter(struct sk_buff *skb, const struct ip_set_counter *counter)
 				   cpu_to_be64(ip_set_get_packets(counter)),
 				   IPSET_ATTR_PAD);
 }
+EXPORT_SYMBOL_GPL(ip_set_put_counter);
 
 static bool
 ip_set_put_skbinfo(struct sk_buff *skb, const struct ip_set_skbinfo *skbinfo)
@@ -596,19 +610,7 @@ ip_set_match_counter(u64 counter, u64 match, u8 op)
 	return false;
 }
 
-static void
-ip_set_add_bytes(u64 bytes, struct ip_set_counter *counter)
-{
-	atomic64_add((long long)bytes, &(counter)->bytes);
-}
-
-static void
-ip_set_add_packets(u64 packets, struct ip_set_counter *counter)
-{
-	atomic64_add((long long)packets, &(counter)->packets);
-}
-
-static void
+void
 ip_set_update_counter(struct ip_set_counter *counter,
 		      const struct ip_set_ext *ext, u32 flags)
 {
@@ -618,6 +620,7 @@ ip_set_update_counter(struct ip_set_counter *counter,
 		ip_set_add_packets(ext->packets, counter);
 	}
 }
+EXPORT_SYMBOL_GPL(ip_set_update_counter);
 
 static void
 ip_set_get_skbinfo(struct ip_set_skbinfo *skbinfo,

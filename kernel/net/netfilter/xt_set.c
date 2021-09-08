@@ -24,6 +24,9 @@ MODULE_ALIAS("ipt_set");
 MODULE_ALIAS("ip6t_set");
 MODULE_ALIAS("ipt_SET");
 MODULE_ALIAS("ip6t_SET");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)
+MODULE_IMPORT_NS(NET_IPSET);
+#endif
 
 #ifdef HAVE_CHECKENTRY_BOOL
 #define CHECK_OK	1
@@ -505,8 +508,8 @@ set_target_v3_checkentry(const struct xt_tgchk_param *par)
 					 1 << NF_INET_LOCAL_OUT |
 					 1 << NF_INET_POST_ROUTING))) {
 			pr_warn("mapping of prio or/and queue is allowed only from OUTPUT/FORWARD/POSTROUTING chains\n");
-			ret = -EINVAL;
-			goto cleanup_del;
+//			ret = -EINVAL;
+//			goto cleanup_del;
 		}
 		index = ip_set_nfnl_get_byindex(XT_PAR_NET(par),
 						info->map_set.index);
