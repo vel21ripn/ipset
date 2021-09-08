@@ -8,11 +8,11 @@
 
 struct _tree_node {
 	struct _tree_node *l0,*l1;
-	uint32_t	  mark,mask;
+	uint32_t	  mark,mask,prio;
 	unsigned long	  expired;
 	u32		  ip;
 	uint16_t	  mlen;
-	uint8_t		  f_strlen,f_tmo:1,f_act:1,f_mark:1,f_cnt:1;
+	uint8_t		  f_strlen,f_tmo:1,f_act:1,f_mark:1,f_cnt:1,f_prio:1;
 	/* struct ip_set_counter */
 	/* *(struct one_string) */
 };
@@ -42,10 +42,10 @@ struct ip_set_req_ipcidr_create {
 struct ip_set_req_ipcidr {
 	u32	 ip;
 	unsigned int masklen;
-	uint32_t mark,mask;
+	uint32_t mark,mask,prio;
 	unsigned int timeout;
 	u32	  ip2;
-	unsigned int f_tmo:1,f_act:1,f_excl:1,f_mark:1,f_string;
+	unsigned int f_tmo:1,f_act:1,f_excl:1,f_mark:1,f_string:1,f_prio:1;
 	char	 str[IPSET_MAX_COMMENT_SIZE];
 };
 

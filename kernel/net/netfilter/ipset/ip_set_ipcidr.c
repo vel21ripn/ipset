@@ -93,9 +93,13 @@ int l;
 char b[256];
 	__str_ip(n->ip,b);
 	l = strlen(b);
-	l += snprintf(&b[l],sizeof(b)-l,"/%d a:%d tm:%d:%lu m:%d:%x/%x",n->mlen,
-		n->f_act,n->f_tmo,n->f_tmo ? n->expired:0,
-		n->f_mark,n->f_mark ? n->mark : 0,n->f_mark ? n->mask:0);
+	l += snprintf(&b[l],sizeof(b)-l,"/%d a:%d",n->mlen, n->f_act);
+	if(n->f_tmo)
+		l += snprintf(&b[l],sizeof(b)-l," tm:%lu", n->expired);
+	if(n->f_mark)
+		l += snprintf(&b[l],sizeof(b)-l," m:%x/%x", n->mark, n->mask);
+	if(n->f_prio)
+		l += snprintf(&b[l],sizeof(b)-l," p:%x",n->prio);
 	if(n->f_cnt) {
 		struct ip_set_counter *cnt = (struct ip_set_counter *)
 			((char *)n + sizeof(*n));
@@ -339,6 +343,8 @@ static int eq_node(tree_node_t *t,tree_node_t *rq,struct ip_set *set) {
 if(!t->f_act) return 0;
 if(t->f_mark != rq->f_mark) return 0;
 if(t->f_mark && (t->mark != rq->mark || t->mark != rq->mark)) return 0;
+if(t->f_prio != rq->f_prio) return 0;
+if(t->f_prio && (t->prio != rq->prio)) return 0;
 if(t->f_tmo != rq->f_tmo) return 0;
 if(t->f_cnt != rq->f_cnt) return 0;
 {
@@ -454,8 +460,10 @@ if(n->l0 && n->l1 && n->l0->f_act && n->l1->f_act) {
 		n->expired = n->l0->expired;
 		n->mark = n->l0->mark;
 		n->mask = n->l0->mask;
+		n->prio = n->l0->prio;
 		n->f_tmo = n->l0->f_tmo;
 		n->f_mark = n->l0->f_mark;
+		n->f_prio = n->l0->f_prio;
 		_compress(n->l0,1,map);
 		_compress(n->l1,1,map);
 		n->l0 = NULL;
@@ -584,6 +592,8 @@ uint32_t tmask;
 			t->f_mark = rq->f_mark;
 			t->mark   = rq->f_mark ? rq->mark : 0;
 			t->mask   = rq->f_mark ? rq->mask : ~0ul;
+			t->f_prio = rq->f_prio;
+			t->prio   = rq->f_prio ? rq->prio : 0;
 			t->f_tmo  = rq->f_tmo;
 			t->expired = rq->f_tmo ? (
 				!t->expired || time_after(rq->expired,t->expired) ? 
@@ -737,7 +747,7 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 		struct ip_set_adt_opt *opt)
 {
 	struct ip_set_ipcidr *map;
-	u32 mark[2],ip;
+	u32 ip;
 	int res;
 
 
@@ -755,15 +765,19 @@ ipcidr_kadt(struct ip_set *set, const struct sk_buff *skb,
 			res =  __testip(set,ip, &fq);
 			spin_unlock_bh(&set->lock);
 			if(res >= 0) {
-				opt->ext.skbinfo.skbprio = mark[0];
-				opt->ext.skbinfo.skbmark = mark[0];
-				opt->ext.skbinfo.skbmarkmask = mark[1];
 				if(fq) {
-					struct ip_set_counter *o_cnt = get_counters(set,fq);
-					if(o_cnt) {
-						atomic64_add((long long)skb->len, &o_cnt->bytes);
-						atomic64_add((long long)1, &o_cnt->packets);
-					}
+				    struct ip_set_counter *o_cnt = get_counters(set,fq);
+				    if(o_cnt) {
+					atomic64_add((long long)skb->len, &o_cnt->bytes);
+					atomic64_add((long long)1, &o_cnt->packets);
+				    }
+				    opt->ext.skbinfo.skbprio = fq->f_prio ? fq->prio:0;
+				    opt->ext.skbinfo.skbmark = fq->f_mark ? fq->mark:0;
+				    opt->ext.skbinfo.skbmarkmask = fq->f_mark ? fq->mask:0;
+				} else {
+				    opt->ext.skbinfo.skbprio = 0;
+				    opt->ext.skbinfo.skbmark = 0;
+				    opt->ext.skbinfo.skbmarkmask = ~0u;
 				}
 				return res;
 			}
@@ -806,9 +820,9 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 	char *str = NULL;
 	size_t str_len = 0;
 
-	u32 ip=0, ip_to=0, mark=0, mask=0, masklen=0;
+	u32 ip=0, ip_to=0, masklen=0;
 	u32 timeout = 0;
-	u64 fullmark = 0;
+	tree_node_t rq;
 	int ret = 0;
 
 	if(!set) return -IPSET_ERR_PROTOCOL;
@@ -821,18 +835,11 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 	if (tb[IPSET_ATTR_LINENO])
 		*lineno = nla_get_u32(tb[IPSET_ATTR_LINENO]);
 
+	memset((char *)&rq,0,sizeof(rq));
+	memset((char *)&o_cnt,0,sizeof(o_cnt));
+
 	ret = ip_set_get_hostipaddr4(tb[IPSET_ATTR_IP], &ip);
 	if (ret) return ret;
-
-	if (tb[IPSET_ATTR_TIMEOUT]) {
-		timeout = ntohl(nla_get_u32(tb[IPSET_ATTR_TIMEOUT]));
-	} else timeout = map->timeout;
-
-	if (tb[IPSET_ATTR_SKBMARK]) {
-		fullmark = be64_to_cpu(nla_get_be64(tb[IPSET_ATTR_SKBMARK]));
-		mark = fullmark >> 32;
-		mask = fullmark & 0xffffffff;
-	}
 
 	if (tb[IPSET_ATTR_CIDR]) {
 		masklen = nla_get_u8(tb[IPSET_ATTR_CIDR]);
@@ -842,6 +849,8 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 
 	if(masklen)
 		ip &= l2m[masklen];
+	rq.ip = ip;
+	rq.mlen = masklen;
 
 	if(tb[IPSET_ATTR_IP_TO]) {
 		ret = ip_set_get_hostipaddr4(tb[IPSET_ATTR_IP_TO], &ip_to);
@@ -849,7 +858,13 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 		if(masklen)
 			ip_to &= l2m[masklen];
 	}
-	memset((char *)&o_cnt,0,sizeof(o_cnt));
+        ret = ip_set_get_extensions(set, tb, &ext);
+        if (ret) return ret;
+
+	timeout = tb[IPSET_ATTR_TIMEOUT] ? ext.timeout : map->timeout;
+	rq.f_tmo = timeout > 0 ? 1:0;
+	rq.expired = rq.f_tmo ? timeout*HZ + jiffies:0;
+
 	if (tb[IPSET_ATTR_BYTES] || tb[IPSET_ATTR_PACKETS]) {
 		if (!SET_WITH_COUNTER(set))
 		    return -IPSET_ERR_COUNTER;
@@ -875,6 +890,16 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 
 		if(!o_str) return -ENOMEM;
 	}
+	if(tb[IPSET_ATTR_SKBMARK]) {
+		rq.f_mark = 1;
+		rq.mark = ext.skbinfo.skbmark;
+		rq.mask = ext.skbinfo.skbmarkmask;
+	}
+	if(tb[IPSET_ATTR_SKBPRIO]) {
+		rq.f_prio = 1;
+		rq.prio = ext.skbinfo.skbprio;
+	}
+	rq.f_cnt = SET_WITH_COUNTER(set) ? 1:0;
 
 	switch(adt) {
 	  case IPSET_TEST:
@@ -883,20 +908,8 @@ ipcidr_uadt(struct ip_set *set, struct nlattr *tb[],
 	  case IPSET_DEL:
 			{
 			struct _netlist l[64];
-			tree_node_t rq;
 			int rl;
 
-			memset((char *)&rq,0,sizeof(rq));
-
-			rq.ip = ip;
-			rq.mlen = masklen;
-			if (!!(rq.f_tmo = timeout > 0))
-				rq.expired = timeout*HZ + jiffies;
-
-			rq.f_mark = tb[IPSET_ATTR_SKBMARK] != NULL;
-			rq.mark = mark;
-			rq.mask = mask;
-			rq.f_cnt = SET_WITH_COUNTER(set) ? 1:0;
 
 			if(ip_to == 0 || ip_to == ip) {
 				ret = __addip(set, &rq , adt == IPSET_ADD, o_str, &o_cnt);
@@ -1000,9 +1013,9 @@ static int ipcidr_put_node(tree_node_t *n,
 	nested = ipset_nest_start(skb, IPSET_ATTR_DATA);
 	if (!nested) 
 		return 1;
-
+        do {
 	if(nla_put_ipaddr4(skb, IPSET_ATTR_IP,htonl(n->ip)))
-		goto nla_put_failure;
+		break;
 	if(n->l1) {
 	    u32 *ip = (u32 *)&n->l0;
 	    int i = may_be_cidr(n->ip,*ip);
@@ -1016,7 +1029,7 @@ static int ipcidr_put_node(tree_node_t *n,
 		res =nla_put_u8(skb, IPSET_ATTR_CIDR, 32-i);
 	      else
 	        res =nla_put_ipaddr4(skb, IPSET_ATTR_IP_TO,htonl(*ip - 1));
-	    if(res) goto nla_put_failure;
+	    if(res) break;
 
 	} else {
 	    DP("  put cidr  %s/%d %s a:%d tmo %d:%d mark %d:%x/%x\n",
@@ -1026,34 +1039,37 @@ static int ipcidr_put_node(tree_node_t *n,
 		n->f_mark, n->f_mark ? n->mark:0,n->f_mark ? n->mask:0);
 	    if(n->mlen != 32)
 		if(nla_put_u8(skb, IPSET_ATTR_CIDR, n->mlen))
-			goto nla_put_failure;
+			break;
 	}
 	if(n->f_tmo && n->expired)
-		if(nla_put_net32(skb, IPSET_ATTR_TIMEOUT,
-			htonl((n->expired-jiffies)/HZ)))
-				goto nla_put_failure;
+		if(nla_put_net32(skb, IPSET_ATTR_TIMEOUT,htonl((n->expired-jiffies)/HZ)))
+				break;
 
 	if(n->f_mark) {
 		u64 fullmark = cpu_to_be64(( (u64)n->mark << 32 ) | (u64)n->mask);
 		if(IPSET_NLA_PUT_NET64(skb, IPSET_ATTR_SKBMARK, fullmark,IPSET_ATTR_PAD))
-				goto nla_put_failure;
+				break;
+	}
+	if(n->f_prio) {
+		if(nla_put_net32(skb, IPSET_ATTR_SKBPRIO, cpu_to_be32(n->prio)))
+				break;
 	}
 	if(n->f_cnt) {
 		struct ip_set_counter *n_cnt = get_counters(set,n);
 		if(n_cnt)
 			if(ip_set_put_counter(skb,n_cnt))
-				goto nla_put_failure;
+				break;
 	}
 	if (n->f_strlen) {
 		struct one_string **n_str = get_comment(set,n);
 		if(n_str && *n_str)
 			if(nla_put_string(skb, IPSET_ATTR_COMMENT, &((*n_str)->str[0])))
-				goto nla_put_failure;
+				break;
 	}
 	ipset_nest_end(skb, nested);
 	return 0;
+	} while(0);
 
-nla_put_failure:
 	DP(" nla_put_failure\n");
 	nla_nest_cancel(skb, nested);
 	return 1;
@@ -1275,6 +1291,7 @@ static struct ip_set_type ipcidr_type __read_mostly = {
 		[IPSET_ATTR_TIMEOUT]	= { .type = NLA_U32 },
 		[IPSET_ATTR_LINENO]	= { .type = NLA_U32 },
 		[IPSET_ATTR_SKBMARK]    = { .type = NLA_U64 },
+		[IPSET_ATTR_SKBPRIO]	= { .type = NLA_U32 },
 		[IPSET_ATTR_BYTES]      = { .type = NLA_U64 },
 		[IPSET_ATTR_PACKETS]    = { .type = NLA_U64 },
 		[IPSET_ATTR_COMMENT]    = { .type = NLA_NUL_STRING,
